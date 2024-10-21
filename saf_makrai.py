@@ -103,6 +103,22 @@ def gerar_link_documento(nome_documento):
     nome_documento_codificado = urllib.parse.quote(nome_documento)
     return f"{base_url}/{nome_documento_codificado}"
 
+# Função para criar resposta de chat com dados do Azure AI Search
+def create_chat_with_data_completion(messages, system_message):
+    """Cria a resposta de chat com base nas mensagens e dados do Azure AI Search."""
+    response = openai_client.chat.completions.create(
+        model=aoai_deployment_name,
+        messages=[
+            {"role": "system", "content": system_message},
+            *[
+                {"role": msg["role"], "content": msg["content"]}
+                for msg in messages
+            ],
+        ],
+        temperature=0.1,
+    )
+    return response.choices[0].message.content
+
 # Função para lidar com a entrada do chat e gerar resposta
 def handle_chat_prompt(prompt):
     st.session_state.messages.append({"role": "user", "content": prompt})
