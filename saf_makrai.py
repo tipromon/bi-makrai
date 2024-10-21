@@ -8,7 +8,6 @@ try:
 except ImportError as e:
     logger.error(f"Erro ao importar Query Models: {str(e)}")
 
-)
 from azure.core.credentials import AzureKeyCredential
 import streamlit as st
 import logging
