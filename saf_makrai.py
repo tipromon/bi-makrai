@@ -7,6 +7,7 @@ from azure.search.documents.models import (
 from azure.core.credentials import AzureKeyCredential
 import streamlit as st
 import logging
+import urllib.parse  # Certifique-se de importar urllib para a função de link
 
 # Configuração do logging
 logging.basicConfig(level=logging.DEBUG)
