@@ -1,6 +1,6 @@
 pypdf==3.5.0
 azure-identity==1.13.0
-azure-search-documents==11.3.0  # Versão Estável
+azure-search-documents==11.5.1  # Versão Estável
 azure-ai-formrecognizer==3.2.1
 azure-storage-blob==12.14.1
 openai
