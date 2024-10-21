@@ -2,7 +2,7 @@ import os
 import openai
 from azure.search.documents import SearchClient
 from azure.search.documents.models import (
-    QueryType, QueryCaptionType, QueryAnswerType, VectorizableTextQuery
+    QueryType, QueryAnswerType, VectorizableTextQuery
 )
 from azure.core.credentials import AzureKeyCredential
 import streamlit as st
