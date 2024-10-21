@@ -1,8 +1,13 @@
 import os
 import openai
 from azure.search.documents import SearchClient
-from azure.search.documents.models import (
-    QueryType, QueryAnswerType, VectorizableTextQuery
+try:
+    from azure.search.documents.models import (
+        QueryType, QueryAnswerType, QueryCaptionType, VectorizableTextQuery
+    )
+except ImportError as e:
+    logger.error(f"Erro ao importar Query Models: {str(e)}")
+
 )
 from azure.core.credentials import AzureKeyCredential
 import streamlit as st
