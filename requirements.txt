@@ -7,5 +7,3 @@ openai
 streamlit
 python-dotenv
 streamlit_authenticator
-pickle
-pathlib
