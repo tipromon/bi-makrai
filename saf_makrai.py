@@ -26,22 +26,30 @@ aoai_deployment_name = st.secrets["AZURE_OPENAI_CHAT_COMPLETIONS_DEPLOYMENT_NAME
 search_endpoint = st.secrets["AZURE_SEARCH_SERVICE_ENDPOINT"]
 search_key = st.secrets["AZURE_SEARCH_SERVICE_ADMIN_KEY"]
 
-# Configuração dos clientes Azure OpenAI
+# Configuração do cliente Azure OpenAI para chat completions
 openai_client = openai.AzureOpenAI(
-    api_key=aoai_key,
-    azure_endpoint=aoai_endpoint,
+    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
     api_version="2023-05-15"
 )
 
+# Configuração do cliente para embeddings
 embedding_client = openai.AzureOpenAI(
-    api_key=aoai_key,
-    azure_endpoint=aoai_embedding_endpoint,
+    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+    azure_endpoint=os.getenv("AZURE_OPENAI_EMBEDDING_ENDPOINT"),
     api_version="2023-05-15"
 )
 
-# Instruções detalhadas para o assistente especialista em SAF
+# Instruções para o assistente
 ROLE_INFORMATION = """
-Instruções para o Assistente de Inteligência Artificial Especializado em SAF:
+Instruções para o Assistente de Inteligência de Mercado:
+Você é um assistente especializado em inteligência de mercado 
+para combustíveis sustentáveis e fontes de energia emergentes. 
+Seu objetivo é fornecer respostas claras, precisas e fundamentadas para auxiliar 
+o usuário em suas análises. As fontes de energia que você analisa incluem, 
+mas não se limitam a, combustíveis sustentáveis para aviação (SAF), lítio, terras raras e biodiesel. 
+O foco de sua função é garantir que as respostas sejam tecnicamente precisas e respaldadas por dados
+confiáveis extraídos dos documentos recuperados ou de pesquisas externas.
 ...
 """
 
@@ -50,7 +58,7 @@ def get_embedding(text):
     try:
         logger.debug(f"Tentando obter embedding para o texto: {text[:50]}...")
         response = embedding_client.embeddings.create(
-            model=aoai_embedding_model,
+            model=os.getenv("AZURE_OPENAI_EMBEDDING_MODEL"),
             input=text
         )
         return response.data[0].embedding
@@ -58,10 +66,14 @@ def get_embedding(text):
         logger.error(f"Erro ao obter embedding: {str(e)}")
         raise
 
-# Função para realizar busca híbrida no índice "vector-saf"
+# Configuração do Azure AI Search
+search_endpoint = os.getenv("AZURE_SEARCH_SERVICE_ENDPOINT")
+search_key = os.getenv("AZURE_SEARCH_SERVICE_ADMIN_KEY")
+
+# Função para busca híbrida no índice "bi-im"
 def hybrid_search(search_client, query, vector):
     try:
-        semantic_config = "vector-saf-semantic-configuration"
+        semantic_config = "bi-im-semantic-configuration"
         vector_query = VectorizableTextQuery(
             text=query, k_nearest_neighbors=5, fields="text_vector", exhaustive=True
         )
@@ -81,9 +93,12 @@ def hybrid_search(search_client, query, vector):
 
         for doc in search_results:
             nome_documento = doc.get('title', '')
+            caminho_documento = doc.get('parent_id', '')  # Pode conter a estrutura da pasta
+
             if nome_documento not in seen_documents:
                 seen_documents.add(nome_documento)
-                link_documento = gerar_link_documento(nome_documento)
+
+                link_documento = gerar_link_documento(caminho_documento, nome_documento)
                 results.append({
                     'content': doc.get('chunk', ''),
                     'filename': nome_documento,
@@ -93,32 +108,34 @@ def hybrid_search(search_client, query, vector):
                 })
 
         return results, search_results.get_answers()
+
     except Exception as e:
         logger.error(f"Erro durante a busca híbrida: {str(e)}")
         raise
 
-# Função para gerar o link do documento no Blob Storage
-def gerar_link_documento(nome_documento):
-    base_url = "https://aisearchpromon.blob.core.windows.net/bi-saf"
-    nome_documento_codificado = urllib.parse.quote(nome_documento)
-    return f"{base_url}/{nome_documento_codificado}"
+# Função para gerar links para documentos no Blob Storage
+def gerar_link_documento(caminho, nome_documento):
+    base_url = "https://aisearchpromon.blob.core.windows.net/bi-im"
 
-# Função para criar resposta de chat com dados do Azure AI Search
+    # Codifica o caminho completo preservando as barras
+    caminho_completo = f"{caminho}/{nome_documento}"
+    caminho_codificado = urllib.parse.quote(caminho_completo, safe='/')
+
+    return f"{base_url}/{caminho_codificado}"
+
+# Função para criar resposta do chat com dados do Azure AI Search
 def create_chat_with_data_completion(messages, system_message):
-    """Cria a resposta de chat com base nas mensagens e dados do Azure AI Search."""
     response = openai_client.chat.completions.create(
-        model=aoai_deployment_name,
+        model=os.getenv("AZURE_OPENAI_CHAT_COMPLETIONS_DEPLOYMENT_NAME"),
         messages=[
             {"role": "system", "content": system_message},
-            *[
-                {"role": msg["role"], "content": msg["content"]}
-                for msg in messages
-            ],
+            *[{"role": msg["role"], "content": msg["content"]} for msg in messages],
         ],
         temperature=0.1,
     )
     return response.choices[0].message.content
-# Função para lidar com a entrada do chat e gerar resposta
+
+# Função para lidar com entrada do chat e gerar resposta
 def handle_chat_prompt(prompt):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -130,7 +147,7 @@ def handle_chat_prompt(prompt):
 
         try:
             search_client = SearchClient(
-                search_endpoint, "vector-saf", credential=AzureKeyCredential(search_key)
+                search_endpoint, "bi-im", credential=AzureKeyCredential(search_key)
             )
             prompt_vector = get_embedding(prompt)
             results, semantic_answers = hybrid_search(search_client, prompt, prompt_vector)
@@ -148,6 +165,7 @@ def handle_chat_prompt(prompt):
             system_message = ROLE_INFORMATION + f"""
             Contexto adicional:
             {references_text}
+
             Instruções adicionais:
             1. Use as informações fornecidas no contexto acima para responder à pergunta do usuário.
             2. Cite as fontes relevantes usando o formato [nome do documento].
@@ -190,3 +208,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
