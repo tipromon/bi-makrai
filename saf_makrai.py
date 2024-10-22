@@ -40,7 +40,7 @@ embedding_client = openai.AzureOpenAI(
     api_version="2023-05-15"
 )
 
-# Instruções para o assistente
+# Instruções para o assistente (use o ROLE_INFORMATION salvo)
 ROLE_INFORMATION = """
 Instruções para o Assistente de Inteligência de Mercado:
 
@@ -126,8 +126,9 @@ def hybrid_search(search_client, query, vector):
     try:
         semantic_config = "bi-im-semantic-configuration"
         vector_query = VectorizableTextQuery(
-            text=query, k_nearest_neighbors=5, fields="text_vector", exhaustive=True
+            text=query, k_nearest_neighbors=12, fields="text_vector", exhaustive=True
         )
+
         search_results = search_client.search(
             search_text=query,
             vector_queries=[vector_query],
@@ -136,20 +137,21 @@ def hybrid_search(search_client, query, vector):
             semantic_configuration_name=semantic_config,
             query_caption=QueryCaptionType.EXTRACTIVE,
             query_answer=QueryAnswerType.EXTRACTIVE,
-            top=5
+            top=12
         )
 
         results = []
         seen_documents = set()
 
-        for doc in search_results:
+        # Re-ranking baseado na pontuação
+        for doc in sorted(search_results, key=lambda x: -x.get('@search.reranker_score', 0)):
             nome_documento = doc.get('title', '')
-            caminho_documento = doc.get('parent_id', '')  # Pode conter a estrutura da pasta
+            caminho_documento = doc.get('parent_id', '')
 
             if nome_documento not in seen_documents:
                 seen_documents.add(nome_documento)
-
                 link_documento = gerar_link_documento(caminho_documento, nome_documento)
+
                 results.append({
                     'content': doc.get('chunk', ''),
                     'filename': nome_documento,
@@ -167,11 +169,8 @@ def hybrid_search(search_client, query, vector):
 # Função para gerar links para documentos no Blob Storage
 def gerar_link_documento(caminho, nome_documento):
     base_url = "https://aisearchpromon.blob.core.windows.net/bi-im"
-
-    # Codifica o caminho completo preservando as barras
     caminho_completo = f"{caminho}/{nome_documento}"
     caminho_codificado = urllib.parse.quote(caminho_completo, safe='/')
-
     return f"{base_url}/{caminho_codificado}"
 
 # Função para criar resposta do chat com dados do Azure AI Search
@@ -201,7 +200,7 @@ def handle_chat_prompt(prompt):
                 search_endpoint, "bi-im", credential=AzureKeyCredential(search_key)
             )
             prompt_vector = get_embedding(prompt)
-            results, semantic_answers = hybrid_search(search_client, prompt, prompt_vector)
+            results, _ = hybrid_search(search_client, prompt, prompt_vector)
 
             logger.debug(f"Número de resultados encontrados: {len(results)}")
 
@@ -209,7 +208,8 @@ def handle_chat_prompt(prompt):
             for doc in results:
                 filename = doc['filename']
                 link = doc['link']
-                references_set.add(f"[{filename}]({link})")
+                doc_title = filename.replace("_", " ").replace(".pdf", "").title()
+                references_set.add(f"[{doc_title}]({link})")
 
             references_text = "\n".join(references_set)
 
@@ -218,10 +218,10 @@ def handle_chat_prompt(prompt):
             {references_text}
 
             Instruções adicionais:
-            1. Use as informações fornecidas no contexto acima para responder à pergunta do usuário.
-            2. Cite as fontes relevantes usando o formato [nome do documento].
-            3. Se não houver informações suficientes, diga que não sabe.
-            4. Ao final da resposta, adicione uma seção de "Referências" com os links para os documentos utilizados.
+            1. Use os dados fornecidos no contexto para responder à pergunta.
+            2. Sempre que utilizar informações, cite como (Fonte: [{doc_title}]).
+            3. Se não houver informações suficientes, responda: "Informação insuficiente para fornecer uma resposta precisa no momento."
+            4. Finalize com uma seção de "Referências" listando todos os documentos usados.
             """
 
             full_response = create_chat_with_data_completion(st.session_state.messages, system_message)
@@ -238,7 +238,7 @@ def handle_chat_prompt(prompt):
 # Função principal do Streamlit
 def main():
     st.title("MakrAI - Inteligência de Mercado")
-    logger.info("Iniciando o MakrAI - Assistente Especialista em Fontes de energia sustentáveis")
+    logger.info("Iniciando o MakrAI - Assistente Especialista em Inteligência de Mercado")
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -247,16 +247,15 @@ def main():
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    if prompt := st.chat_input("Digite sua pergunta"):
+    if prompt := st.chat_input("Digite sua pergunta sobre o mercado de SAF no Brasil:"):
         handle_chat_prompt(prompt)
 
     st.sidebar.markdown("""
     **Disclaimer**:
-    O "MakrAI" tem como único objetivo disponibilizar dados que sirvam como um meio de orientação e apoio. As informações fornecidas são baseadas em documentos indexados e disponíveis no sistema.
+    O "MakrAI" oferece dados apenas como orientação e apoio, baseados em documentos indexados e disponíveis no sistema.
     """)
 
     logger.info("Sessão do MakrAI finalizada")
 
 if __name__ == "__main__":
     main()
-
