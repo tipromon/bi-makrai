@@ -58,7 +58,8 @@ def get_embedding(text):
         logger.error(f"Erro ao obter embedding: {str(e)}")
         raise
 
-# Função para realizar busca híbrida no índice "vector-saf"
+# Função para realizar busca híbrida no índice "bi-im"
+# Função para realizar busca híbrida no índice "bi-im"
 def hybrid_search(search_client, query, vector):
     try:
         semantic_config = "vector-saf-semantic-configuration"
@@ -68,7 +69,7 @@ def hybrid_search(search_client, query, vector):
         search_results = search_client.search(
             search_text=query,
             vector_queries=[vector_query],
-            select=["chunk_id", "parent_id", "chunk", "title"],
+            select=["chunk_id", "parent_id", "chunk", "title", "metadata_storage_path"],
             query_type=QueryType.SEMANTIC,
             semantic_configuration_name=semantic_config,
             query_caption=QueryCaptionType.EXTRACTIVE,
@@ -81,9 +82,14 @@ def hybrid_search(search_client, query, vector):
 
         for doc in search_results:
             nome_documento = doc.get('title', '')
+            caminho_completo = doc.get('metadata_storage_path', '')  # Obtém o caminho completo
+
             if nome_documento not in seen_documents:
                 seen_documents.add(nome_documento)
-                link_documento = gerar_link_documento(nome_documento)
+                
+                # Gera o link do documento com o caminho completo
+                link_documento = gerar_link_documento(caminho_completo)
+                
                 results.append({
                     'content': doc.get('chunk', ''),
                     'filename': nome_documento,
@@ -93,15 +99,20 @@ def hybrid_search(search_client, query, vector):
                 })
 
         return results, search_results.get_answers()
+
     except Exception as e:
         logger.error(f"Erro durante a busca híbrida: {str(e)}")
         raise
-
+        
 # Função para gerar o link do documento no Blob Storage
-def gerar_link_documento(nome_documento):
-    base_url = "https://aisearchpromon.blob.core.windows.net/bi-saf"
-    nome_documento_codificado = urllib.parse.quote(nome_documento)
-    return f"{base_url}/{nome_documento_codificado}"
+def gerar_link_documento(caminho_completo):
+    base_url = "https://aisearchpromon.blob.core.windows.net/bi-im"
+    
+    # Codifica o caminho completo (preservando as barras)
+    caminho_codificado = urllib.parse.quote(caminho_completo, safe='/')
+
+    # Constrói o link completo do documento
+    return f"{base_url}/{caminho_codificado}"
 
 # Função para criar resposta de chat com dados do Azure AI Search
 def create_chat_with_data_completion(messages, system_message):
@@ -131,7 +142,7 @@ def handle_chat_prompt(prompt):
 
         try:
             search_client = SearchClient(
-                search_endpoint, "vector-saf", credential=AzureKeyCredential(search_key)
+                search_endpoint, "bi-im", credential=AzureKeyCredential(search_key)
             )
             prompt_vector = get_embedding(prompt)
             results, semantic_answers = hybrid_search(search_client, prompt, prompt_vector)
